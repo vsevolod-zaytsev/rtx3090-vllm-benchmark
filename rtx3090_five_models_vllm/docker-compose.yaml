@@ -1,0 +1,172 @@
+# Docker Compose: пять локальных LLM через vLLM (один GPU, RTX 3090).
+# Запускать из каталога, где лежит этот файл:
+#   docker compose up -d <service_name>
+#
+# Каталог с весами на хосте: задайте переменную окружения BENCHMARK_MODELS_DIR
+# или создайте симлинк/копию моделей в подкаталог ./models относительно compose.
+# Скрипт-охранник vLLM: ./vllm-guard (копируется вместе с репозиторием).
+
+x-vllm-common: &vllm-common
+  runtime: nvidia
+  ipc: host
+  environment:
+    - NVIDIA_VISIBLE_DEVICES=all
+  volumes:
+    - ${BENCHMARK_MODELS_DIR:-./models}:/models:ro
+    - /var/run/docker.sock:/var/run/docker.sock
+    - ./vllm-guard:/guard:ro
+  entrypoint: ["/bin/bash", "/guard/guard-start.sh"]
+  deploy:
+    resources:
+      reservations:
+        devices:
+          - driver: nvidia
+            count: 1
+            capabilities: [gpu]
+  restart: "no"
+
+services:
+  # Qwen3 MoE AWQ (кодинг)
+  qwen3-coder:
+    <<: *vllm-common
+    image: vllm-gemma4:latest
+    container_name: qwen3-coder-30b-awq
+    ports:
+      - "18101:8000"
+    command:
+      - "qwen3-coder-30b-awq"
+      - "--model"
+      - "/models/qwen3_coder_30b_a3b_awq"
+      - "--served-model-name"
+      - "qwen3-coder"
+      - "--max-model-len"
+      - "32768"
+      - "--gpu-memory-utilization"
+      - "0.9"
+      - "--dtype"
+      - "bfloat16"
+      - "--trust-remote-code"
+      - "--enable-prefix-caching"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 180s
+
+  # Gemma 4, AWQ pack
+  gemma4-26b:
+    <<: *vllm-common
+    image: vllm-gemma4:latest
+    container_name: gemma4-26b-awq
+    ports:
+      - "18102:8000"
+    command:
+      - "gemma4-26b-awq"
+      - "--model"
+      - "/models/gemma_4_26B_A4B_it_AWQ_4bit"
+      - "--served-model-name"
+      - "gemma-4-26b"
+      - "--max-model-len"
+      - "32768"
+      - "--gpu-memory-utilization"
+      - "0.92"
+      - "--dtype"
+      - "float16"
+      - "--trust-remote-code"
+      - "--enforce-eager"
+      - "--disable-log-stats"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 180s
+
+  # YandexGPT Lite 8B
+  yandexgpt-lite-8b:
+    <<: *vllm-common
+    image: vllm-gemma4:latest
+    container_name: yandexgpt-5-lite-8b
+    ports:
+      - "18103:8000"
+    command:
+      - "yandexgpt-5-lite-8b"
+      - "--model"
+      - "/models/yandexgpt-5-lite-8b"
+      - "--served-model-name"
+      - "yandexgpt-5-lite-8b"
+      - "--max-model-len"
+      - "32768"
+      - "--gpu-memory-utilization"
+      - "0.9"
+      - "--dtype"
+      - "float16"
+      - "--trust-remote-code"
+      - "--enable-prefix-caching"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 180s
+
+  # Phi-4 AWQ Marlin
+  phi-4:
+    <<: *vllm-common
+    image: vllm-gemma4:latest
+    container_name: phi-4
+    ports:
+      - "18104:8000"
+    command:
+      - "phi-4"
+      - "--model"
+      - "/models/phi-4-awq"
+      - "--served-model-name"
+      - "phi-4"
+      - "--quantization"
+      - "awq_marlin"
+      - "--max-model-len"
+      - "16384"
+      - "--gpu-memory-utilization"
+      - "0.88"
+      - "--dtype"
+      - "float16"
+      - "--trust-remote-code"
+      - "--enable-prefix-caching"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 240s
+
+  # DeepSeek R1 distill, Qwen2 32B AWQ
+  deepseek-r1-32b-awq:
+    <<: *vllm-common
+    image: vllm-gemma4:latest
+    container_name: deepseek-r1-32b-awq
+    ports:
+      - "18105:8000"
+    command:
+      - "deepseek-r1-32b-awq"
+      - "--model"
+      - "/models/deepseek-r1-32b"
+      - "--served-model-name"
+      - "deepseek-r1-32b"
+      - "--max-model-len"
+      - "8192"
+      - "--gpu-memory-utilization"
+      - "0.96"
+      - "--quantization"
+      - "awq_marlin"
+      - "--dtype"
+      - "float16"
+      - "--trust-remote-code"
+      - "--enable-prefix-caching"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 240s
